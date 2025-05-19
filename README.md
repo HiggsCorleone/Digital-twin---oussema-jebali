@@ -93,8 +93,7 @@ To launch the application, follow these steps:
 
 1. Clone the repository:
    ```bash
-   git clone <[repository-url](https://github.com/HiggsCorleone/Digital-twin---oussema-jebali.git)>
-   cd miso-digital-twin
+   git clone https://github.com/HiggsCorleone/Digital-twin---oussema-jebali.git
    ```
 
 2. Launch the system with Docker Compose:
