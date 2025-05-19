@@ -1,0 +1,321 @@
+{
+  "flowController": {
+    "name": "MISO System Data Flow",
+    "comment": "Flow for processing Channel State Information (CSI) and calculating secrecy rates"
+  },
+  "registries": [],
+  "controllerServices": [
+    {
+      "name": "JsonRecordSetWriter",
+      "type": "org.apache.nifi.json.JsonRecordSetWriter",
+      "properties": {
+        "Schema Write Strategy": "full-schema-attribute",
+        "Schema Access Strategy": "schema-name",
+        "Schema Registry": "AvroSchemaRegistry",
+        "Compression Format": "none",
+        "Pretty Print JSON": "true"
+      }
+    },
+    {
+      "name": "JsonTreeReader",
+      "type": "org.apache.nifi.json.JsonTreeReader",
+      "properties": {
+        "Schema Access Strategy": "infer-schema",
+        "Schema Registry": "AvroSchemaRegistry"
+      }
+    }
+  ],
+  "processGroups": [
+    {
+      "name": "CSI Data Processing",
+      "position": {
+        "x": 340,
+        "y": 140
+      },
+      "processors": [
+        {
+          "name": "GetFile",
+          "type": "org.apache.nifi.processors.standard.GetFile",
+          "position": {
+            "x": 384,
+            "y": 184
+          },
+          "properties": {
+            "Input Directory": "/data",
+            "File Filter": "sample_csi.json",
+            "Polling Interval": "1 min"
+          }
+        },
+        {
+          "name": "ParseJSON",
+          "type": "org.apache.nifi.processors.standard.EvaluateJsonPath",
+          "position": {
+            "x": 384,
+            "y": 280
+          },
+          "properties": {
+            "channel_data": "$.channel_data",
+            "eavesdropping_events": "$.eavesdropping_events",
+            "Destination": "flowfile-attribute"
+          }
+        },
+        {
+          "name": "CalculateSecrecyRate",
+          "type": "org.apache.nifi.processors.script.ExecuteScript",
+          "position": {
+            "x": 384,
+            "y": 370
+          },
+          "properties": {
+            "Script Engine": "python",
+            "Script File": "/opt/nifi/scripts/calculate_secrecy.py"
+          }
+        },
+        {
+          "name": "UpdateAttributes",
+          "type": "org.apache.nifi.processors.attributes.UpdateAttribute",
+          "position": {
+            "x": 384,
+            "y": 460
+          },
+          "properties": {
+            "filename": "${filename:substringBeforeLast('.')}_processed_${now():format('yyyyMMddHHmmss')}.json"
+          }
+        },
+        {
+          "name": "PutFile",
+          "type": "org.apache.nifi.processors.standard.PutFile",
+          "position": {
+            "x": 384,
+            "y": 550
+          },
+          "properties": {
+            "Directory": "/data/processed",
+            "Conflict Resolution Strategy": "replace"
+          }
+        }
+      ],
+      "connections": [
+        {
+          "name": "GetFile to ParseJSON",
+          "source": {
+            "name": "GetFile",
+            "relationship": "success"
+          },
+          "destination": {
+            "name": "ParseJSON",
+            "input": "input"
+          }
+        },
+        {
+          "name": "ParseJSON to CalculateSecrecyRate",
+          "source": {
+            "name": "ParseJSON",
+            "relationship": "matched"
+          },
+          "destination": {
+            "name": "CalculateSecrecyRate",
+            "input": "input"
+          }
+        },
+        {
+          "name": "CalculateSecrecyRate to UpdateAttributes",
+          "source": {
+            "name": "CalculateSecrecyRate",
+            "relationship": "success"
+          },
+          "destination": {
+            "name": "UpdateAttributes",
+            "input": "input"
+          }
+        },
+        {
+          "name": "UpdateAttributes to PutFile",
+          "source": {
+            "name": "UpdateAttributes",
+            "relationship": "success"
+          },
+          "destination": {
+            "name": "PutFile",
+            "input": "input"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Eavesdropping Detection",
+      "position": {
+        "x": 780,
+        "y": 140
+      },
+      "processors": [
+        {
+          "name": "MonitorEavesdropping",
+          "type": "org.apache.nifi.processors.script.ExecuteScript",
+          "position": {
+            "x": 824,
+            "y": 184
+          },
+          "properties": {
+            "Script Engine": "python",
+            "Script File": "/opt/nifi/scripts/detect_eavesdropping.py"
+          }
+        },
+        {
+          "name": "EvaluateThreshold",
+          "type": "org.apache.nifi.processors.standard.RouteOnAttribute",
+          "position": {
+            "x": 824,
+            "y": 280
+          },
+          "properties": {
+            "Routing Strategy": "Route to Property name",
+            "high_threat": "${threat_level:equals('high')}",
+            "medium_threat": "${threat_level:equals('medium')}",
+            "low_threat": "${threat_level:equals('low')}"
+          }
+        },
+        {
+          "name": "GenerateAlert",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "position": {
+            "x": 824,
+            "y": 370
+          },
+          "properties": {
+            "Custom Text": "Eavesdropping alert! Threat level: ${threat_level}"
+          }
+        },
+        {
+          "name": "NotifySystem",
+          "type": "org.apache.nifi.processors.standard.PutFile",
+          "position": {
+            "x": 824,
+            "y": 460
+          },
+          "properties": {
+            "Directory": "/data/alerts",
+            "Filename": "eavesdropping_alert_${now():format('yyyyMMddHHmmss')}.txt"
+          }
+        }
+      ],
+      "connections": [
+        {
+          "name": "MonitorEavesdropping to EvaluateThreshold",
+          "source": {
+            "name": "MonitorEavesdropping",
+            "relationship": "success"
+          },
+          "destination": {
+            "name": "EvaluateThreshold",
+            "input": "input"
+          }
+        },
+        {
+          "name": "EvaluateThreshold to GenerateAlert (High)",
+          "source": {
+            "name": "EvaluateThreshold",
+            "relationship": "high_threat"
+          },
+          "destination": {
+            "name": "GenerateAlert",
+            "input": "input"
+          }
+        },
+        {
+          "name": "EvaluateThreshold to GenerateAlert (Medium)",
+          "source": {
+            "name": "EvaluateThreshold",
+            "relationship": "medium_threat"
+          },
+          "destination": {
+            "name": "GenerateAlert",
+            "input": "input"
+          }
+        },
+        {
+          "name": "GenerateAlert to NotifySystem",
+          "source": {
+            "name": "GenerateAlert",
+            "relationship": "success"
+          },
+          "destination": {
+            "name": "NotifySystem",
+            "input": "input"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Data Export",
+      "position": {
+        "x": 560,
+        "y": 580
+      },
+      "processors": [
+        {
+          "name": "MergeContent",
+          "type": "org.apache.nifi.processors.standard.MergeContent",
+          "position": {
+            "x": 604,
+            "y": 624
+          },
+          "properties": {
+            "Merge Strategy": "Bin-Packing Algorithm",
+            "Merge Format": "Binary Concatenation",
+            "Minimum Number of Entries": "5",
+            "Maximum Number of Entries": "100"
+          }
+        },
+        {
+          "name": "CompressContent",
+          "type": "org.apache.nifi.processors.standard.CompressContent",
+          "position": {
+            "x": 604,
+            "y": 720
+          },
+          "properties": {
+            "Compression Format": "gzip",
+            "Mode": "compress"
+          }
+        },
+        {
+          "name": "ExportData",
+          "type": "org.apache.nifi.processors.standard.PutFile",
+          "position": {
+            "x": 604,
+            "y": 810
+          },
+          "properties": {
+            "Directory": "/data/exports",
+            "Filename": "secrecy_data_export_${now():format('yyyyMMdd')}.json.gz"
+          }
+        }
+      ],
+      "connections": [
+        {
+          "name": "MergeContent to CompressContent",
+          "source": {
+            "name": "MergeContent",
+            "relationship": "merged"
+          },
+          "destination": {
+            "name": "CompressContent",
+            "input": "input"
+          }
+        },
+        {
+          "name": "CompressContent to ExportData",
+          "source": {
+            "name": "CompressContent",
+            "relationship": "success"
+          },
+          "destination": {
+            "name": "ExportData",
+            "input": "input"
+          }
+        }
+      ]
+    }
+  ]
+}
