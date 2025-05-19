@@ -132,9 +132,4 @@ To monitor for eavesdropping:
 2. Review security status cards for threat levels
 3. Navigate to System Status for more detailed information
 
-## Notes
 
-- This is a prototype application for demonstration purposes
-- It uses static JSON files to simulate real-time CSI and secrecy rate data
-- The actual secrecy rate calculations would typically be performed through more sophisticated signal processing techniques
-- In a real-world scenario, this would be connected to actual MISO hardware systems
